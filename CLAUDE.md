@@ -20,9 +20,13 @@ Phase 1 (pilot) is implemented: Web Applications only, single server, no auth, n
 `docs/prd/phase-1-pilot.md` for exact scope and `docs/prd/00-overview.md` for the architecture
 decisions that shape everything (single-server deployment, no Elasticsearch/SQL, no login).
 
-Phase 2 and Phase 3 (`docs/prd/phase-2.md`, `docs/prd/phase-3.md`) are **not started** - they're
-written as forward-looking guidelines, not a backlog that's silently in progress. Don't assume any
-Phase 2/3 feature exists just because it's described there; check the code.
+Phase 2 (`docs/prd/phase-2.md`) is **mostly implemented** as of 2026-07-20: search refinements
+(regex + AND/OR/NOT), date-range export, index caching, and redaction. **Alerting was explicitly
+deferred** by the user and has no design work - don't start it without scoping it first.
+
+Phase 3 (`docs/prd/phase-3.md`) is **not started, and none of its trigger conditions have fired**
+(confirmed with the user 2026-07-20). Non-Web-App log types, multi-server collector agents, and
+authentication are all gated on a specific trigger actually occurring - don't build ahead of them.
 
 ## Current implementation status (Phase 1)
 
@@ -72,7 +76,16 @@ the full decision log):
    simpler to reason about, tolerates locked/rotating files without missed events. Don't swap this
    out for a watcher-based approach without a concrete reason - it was a considered trade-off, not
    an oversight.
-6. **Log parsing is heuristic and format-agnostic on purpose.** LogHub has no per-application
+6. **The index cache is a TTL cache, not an invalidation-on-change index.** `LogFolderScanner`
+   holds a built index for `IndexCacheSeconds` (default 10). This is consistent with decision 5 -
+   the app polls rather than watching the filesystem - and it means a brand-new log file becomes
+   visible within the TTL rather than instantly. That's a deliberate trade, not a bug. Registering
+   or removing an application invalidates the cache immediately.
+7. **Redaction is a safety net, never a guarantee.** `LogRedactor` masks what it can recognize on
+   the way out; it cannot catch a secret logged as a bare unlabelled string. Don't let its presence
+   justify relaxing the expectation that applications shouldn't log secrets, and don't describe logs
+   as "safe to share" because it exists.
+8. **Log parsing is heuristic and format-agnostic on purpose.** LogHub has no per-application
    format configuration. It must keep working against log formats it's never seen before (that's
    literally why the multi-line grouping fix exists - see below). Don't add a hard dependency on
    any one framework's output shape (Serilog, NLog, log4net, etc.).
@@ -137,6 +150,8 @@ LogViewer/
       LogLineParser.cs              Timestamp/level detection for a single line
       LogEntryGrouper.cs            Groups lines into multi-line-aware entries (batch/History)
       LogFileReader.cs              Shared-mode reads (logs are usually held open by their writer)
+      LogQuery.cs                   Search expressions: AND/OR/NOT, phrases, optional regex mode
+      LogRedactor.cs                Masks credential-looking values before entries leave the server
       LogTailBackgroundService.cs   Polls today's file(s), streams new entries via SignalR
     Hubs/LogHub.cs                  SignalR hub (per-app groups) + backlog replay on join
     Pages/                          Dashboard (Index), LiveTail, History, Admin (Razor Pages)

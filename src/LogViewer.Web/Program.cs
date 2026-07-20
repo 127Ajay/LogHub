@@ -62,29 +62,34 @@ app.MapHub<LogHub>("/hubs/log");
 app.MapGet("/api/apps", (LogAppRegistry registry) =>
     Results.Ok(registry.All));
 
-app.MapPost("/api/apps", async (HttpRequest request, LogAppRegistry registry) =>
+app.MapPost("/api/apps", async (HttpRequest request, LogAppRegistry registry, LogFolderScanner scanner) =>
 {
     var payload = await request.ReadFromJsonAsync<AddAppRequest>();
     if (payload is null) return Results.BadRequest(new { ok = false, error = "Invalid request body." });
 
     var (success, error) = registry.Add(payload.Name, payload.RootPaths ?? new List<string>());
+    // A newly registered app must show its logs straight away, not after the
+    // index cache TTL expires.
+    if (success) scanner.InvalidateCache();
+
     return success
         ? Results.Ok(new { ok = true })
         : Results.BadRequest(new { ok = false, error });
 });
 
-app.MapDelete("/api/apps/{name}", (string name, LogAppRegistry registry) =>
-    registry.Remove(name) ? Results.Ok(new { ok = true }) : Results.NotFound());
+app.MapDelete("/api/apps/{name}", (string name, LogAppRegistry registry, LogFolderScanner scanner) =>
+{
+    if (!registry.Remove(name)) return Results.NotFound();
+    scanner.InvalidateCache();
+    return Results.Ok(new { ok = true });
+});
 
 app.MapGet("/api/apps/{name}/dates", (string name, LogAppRegistry registry, LogFolderScanner scanner) =>
 {
     var appConfig = registry.Get(name);
     if (appConfig is null) return Results.NotFound();
 
-    var dates = scanner.BuildIndex(appConfig).Keys
-        .OrderByDescending(d => d)
-        .Select(d => d.ToString("yyyy-MM-dd"));
-
+    var dates = scanner.GetDates(appConfig).Select(d => d.ToString("yyyy-MM-dd"));
     return Results.Ok(dates);
 });
 
@@ -126,12 +131,15 @@ app.MapGet("/api/apps/{name}/tags", (
         try { lines = LogFileReader.ReadLinesShared(filePath).ToList(); }
         catch (IOException) { continue; }
 
-        foreach (var entry in LogEntryGrouper.Group(lines, Path.GetFileName(filePath)))
+        foreach (var entry in LogEntryGrouper.Group(lines, Path.GetFileName(filePath), options.Value.RedactSecrets))
         {
             if (++scanned >= options.Value.MaxHistoryLinesReturned) break;
 
             foreach (var (key, value) in entry.Tags)
             {
+                // Never offer a credential-ish field as a grouping option -
+                // the dropdown would list its values verbatim.
+                if (options.Value.RedactSecrets && LogRedactor.IsSecretKey(key)) continue;
                 if (!tags.TryGetValue(key, out var values))
                 {
                     values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -161,6 +169,7 @@ app.MapGet("/api/apps/{name}/logs", (
     string? file,
     string? tagKey,
     string? tagValue,
+    bool? regex,
     LogAppRegistry registry,
     LogFolderScanner scanner,
     IOptions<LogViewerOptions> options) =>
@@ -169,51 +178,78 @@ app.MapGet("/api/apps/{name}/logs", (
     if (appConfig is null) return Results.NotFound();
     if (!DateOnly.TryParse(date, out var parsedDate)) return Results.BadRequest("Invalid date");
 
+    var query = LogQuery.Parse(keyword, regex == true);
+    if (!query.IsValid) return Results.BadRequest(new { error = query.Error });
+
     var files = FilterFiles(scanner.GetFilesForDate(appConfig, parsedDate), file);
-
-    LogSeverity? levelFilter = null;
-    if (!string.IsNullOrEmpty(level) && Enum.TryParse<LogSeverity>(level, true, out var parsedLevel))
-    {
-        levelFilter = parsedLevel;
-    }
-
-    var maxLines = options.Value.MaxHistoryLinesReturned;
-    var results = new List<LogEntry>();
-
-    foreach (var filePath in files)
-    {
-        if (results.Count >= maxLines) break;
-
-        IEnumerable<string> lines;
-        try
-        {
-            // Materialized here so an IOException surfaces now rather than
-            // part-way through enumeration inside the grouper.
-            lines = LogFileReader.ReadLinesShared(filePath).ToList();
-        }
-        catch (IOException)
-        {
-            continue; // genuinely unreadable - skip for this request
-        }
-
-        var fileName = Path.GetFileName(filePath);
-        foreach (var entry in LogEntryGrouper.Group(lines, fileName))
-        {
-            if (!string.IsNullOrEmpty(keyword) && entry.Message.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) < 0) continue;
-            if (levelFilter.HasValue && entry.Level != levelFilter.Value) continue;
-            if (!string.IsNullOrEmpty(tagKey))
-            {
-                if (!entry.Tags.TryGetValue(tagKey, out var actual)) continue;
-                if (!string.IsNullOrEmpty(tagValue) &&
-                    !string.Equals(actual, tagValue, StringComparison.OrdinalIgnoreCase)) continue;
-            }
-
-            results.Add(entry);
-            if (results.Count >= maxLines) break;
-        }
-    }
+    var results = ReadEntries(files, options.Value, query, level, tagKey, tagValue,
+        options.Value.MaxHistoryLinesReturned);
 
     return Results.Ok(results);
+});
+
+// Export a whole date range in one request, so a multi-day extract doesn't
+// require paging the UI a day at a time. Streams CSV rather than JSON: the
+// output is meant for Excel, and a large range shouldn't be buffered whole.
+app.MapGet("/api/apps/{name}/export", (
+    string name,
+    string from,
+    string to,
+    string? level,
+    string? keyword,
+    string? tagKey,
+    string? tagValue,
+    bool? regex,
+    LogAppRegistry registry,
+    LogFolderScanner scanner,
+    IOptions<LogViewerOptions> options) =>
+{
+    var appConfig = registry.Get(name);
+    if (appConfig is null) return Results.NotFound();
+    if (!DateOnly.TryParse(from, out var fromDate)) return Results.BadRequest("Invalid 'from' date");
+    if (!DateOnly.TryParse(to, out var toDate)) return Results.BadRequest("Invalid 'to' date");
+    if (toDate < fromDate) (fromDate, toDate) = (toDate, fromDate);
+
+    var query = LogQuery.Parse(keyword, regex == true);
+    if (!query.IsValid) return Results.BadRequest(new { error = query.Error });
+
+    // Only dates that actually have files, so an open-ended range doesn't
+    // walk empty days one by one.
+    var dates = scanner.GetDates(appConfig)
+        .Where(d => d >= fromDate && d <= toDate)
+        .OrderBy(d => d)
+        .ToList();
+
+    var fileName = $"{appConfig.Name}_{fromDate:yyyy-MM-dd}_to_{toDate:yyyy-MM-dd}.csv";
+
+    return Results.Stream(async stream =>
+    {
+        await using var writer = new StreamWriter(stream);
+        await writer.WriteLineAsync("Date,Timestamp,Level,File,Message,Tags");
+
+        var budget = options.Value.MaxExportEntries;
+
+        foreach (var date in dates)
+        {
+            if (budget <= 0) break;
+
+            var files = scanner.GetFilesForDate(appConfig, date);
+            var entries = ReadEntries(files, options.Value, query, level, tagKey, tagValue, budget);
+            budget -= entries.Count;
+
+            foreach (var entry in entries)
+            {
+                var tags = string.Join(" ", entry.Tags.Select(t => $"{t.Key}={t.Value}"));
+                await writer.WriteLineAsync(string.Join(",",
+                    Csv(date.ToString("yyyy-MM-dd")),
+                    Csv(entry.Timestamp?.ToString("o") ?? ""),
+                    Csv(entry.Level.ToString()),
+                    Csv(entry.SourceFile),
+                    Csv(entry.Message),
+                    Csv(tags)));
+            }
+        }
+    }, "text/csv", fileName);
 });
 
 try
@@ -235,4 +271,67 @@ public partial class Program
         string.IsNullOrEmpty(fileName)
             ? files
             : files.Where(f => string.Equals(Path.GetFileName(f), fileName, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    /// <summary>
+    /// Reads and filters entries from a set of files. Shared by the History
+    /// search and the date-range export so the two can never drift into
+    /// applying filters differently.
+    /// </summary>
+    internal static List<LogEntry> ReadEntries(
+        List<string> files,
+        LogViewerOptions options,
+        LogQuery query,
+        string? level,
+        string? tagKey,
+        string? tagValue,
+        int maxEntries)
+    {
+        LogSeverity? levelFilter = null;
+        if (!string.IsNullOrEmpty(level) && Enum.TryParse<LogSeverity>(level, true, out var parsedLevel))
+        {
+            levelFilter = parsedLevel;
+        }
+
+        var results = new List<LogEntry>();
+
+        foreach (var filePath in files)
+        {
+            if (results.Count >= maxEntries) break;
+
+            List<string> lines;
+            try
+            {
+                // Materialized here so an IOException surfaces now rather than
+                // part-way through enumeration inside the grouper.
+                lines = LogFileReader.ReadLinesShared(filePath).ToList();
+            }
+            catch (IOException)
+            {
+                continue; // genuinely unreadable - skip for this request
+            }
+
+            var fileName = Path.GetFileName(filePath);
+            foreach (var entry in LogEntryGrouper.Group(lines, fileName, options.RedactSecrets))
+            {
+                // Matched against the grouped entry, so a term inside a stack
+                // trace still finds the entry that owns it.
+                if (!query.Matches(entry)) continue;
+                if (levelFilter.HasValue && entry.Level != levelFilter.Value) continue;
+                if (!string.IsNullOrEmpty(tagKey))
+                {
+                    if (!entry.Tags.TryGetValue(tagKey, out var actual)) continue;
+                    if (!string.IsNullOrEmpty(tagValue) &&
+                        !string.Equals(actual, tagValue, StringComparison.OrdinalIgnoreCase)) continue;
+                }
+
+                results.Add(entry);
+                if (results.Count >= maxEntries) break;
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>RFC 4180 CSV field: always quoted, embedded quotes doubled.</summary>
+    internal static string Csv(string value) => '"' + (value ?? "").Replace("\"", "\"\"") + '"';
 }

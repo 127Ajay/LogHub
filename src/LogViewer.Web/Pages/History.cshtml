@@ -31,7 +31,10 @@ else
             <option value="info">Info</option>
             <option value="debug">Debug</option>
         </select>
-        <input type="text" id="keyword-input" placeholder="Keyword...">
+        <input type="text" id="keyword-input" placeholder="Keyword, &quot;exact phrase&quot;, a OR b, -exclude">
+        <label class="inline-check" title="Treat the search box as a .NET regular expression">
+            <input type="checkbox" id="regex-toggle"> Regex
+        </label>
         @* Populated from whatever structured fields the day's logs actually
            contain - empty for formats that carry none. *@
         <select id="tag-select" title="Group results by a tag found in the logs">
@@ -41,7 +44,18 @@ else
             <option value="">All values</option>
         </select>
         <button class="primary" id="search-btn">Search</button>
-        <button class="ghost" id="export-btn">Export CSV</button>
+        <button class="ghost" id="export-btn">Export results</button>
+    </div>
+
+    @* Exports straight from the server across a whole range, applying the same
+       filters as the search above - no need to page through a day at a time. *@
+    <div class="filterbar rangebar">
+        <span class="rangelabel">Export date range</span>
+        <input type="date" id="range-from">
+        <span class="rangelabel">to</span>
+        <input type="date" id="range-to">
+        <button class="ghost" id="export-range-btn">Export range CSV</button>
+        <span class="rangehint">Uses the level, keyword and tag filters above.</span>
     </div>
 
     <table>

@@ -61,7 +61,8 @@ public class LogHub : Hub
             try
             {
                 var fileName = Path.GetFileName(filePath);
-                entries.AddRange(LogEntryGrouper.Group(LogFileReader.ReadLinesShared(filePath), fileName));
+                entries.AddRange(LogEntryGrouper.Group(
+                    LogFileReader.ReadLinesShared(filePath), fileName, _options.RedactSecrets));
             }
             catch (IOException ex)
             {

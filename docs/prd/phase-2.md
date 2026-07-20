@@ -1,31 +1,37 @@
 # Phase 2
 
-**Status: Planned, not started.** Nothing in this file exists in the codebase yet. Treat it as
-forward-looking guidance for after Phase 1 has been used in practice for a while, not an active
-backlog. Confirm with the user before starting any of this - priorities may shift once Phase 1 gets
-real usage.
+**Status: Mostly implemented (2026-07-20).** Four of the five candidate items are built; alerting
+was explicitly deferred by the user. See per-item status below.
 
 Shared context (objective, architecture, non-functional requirements) is in `00-overview.md`.
 
 ## Candidate scope
 
-- **Search/filter refinements** - more precise keyword matching (e.g. optional regex mode),
-  multi-keyword/AND-OR queries, filtering by source file within a date more fluidly.
-- **Export improvements** - beyond the current CSV export of on-screen results: exporting a full
-  filtered date range without needing to page through the UI first.
-- **In-memory indexing performance tuning** - Phase 1 scans files on demand for every History
-  request. If usage/log volume makes this noticeably slow, build a lightweight in-memory
-  date -> file -> approximate-offset index that's refreshed on file change, not persisted. This is
-  explicitly **not** a database or search engine (see `00-overview.md`'s architecture decision) -
-  if in-memory indexing turns out to be insufficient, the fallback is **Lucene.NET** (free,
-  self-hosted, no license fees), not Elasticsearch/SQL.
-- **Redaction safeguard** - simple pattern-based masking (e.g. anything that looks like a password
-  or token) as a safety net, on top of the existing expectation that source applications shouldn't
-  log secrets in the first place.
-- **Alerting/notifications** - configurable rules (e.g. error count > N in 5 minutes, a specific
-  keyword appears) triggering email/Teams/Slack notifications. This was noted as a stretch goal in
-  the original PRD and has no design work done yet - scope it properly before starting (delivery
-  mechanism, rule storage, whether it needs any persistence at all).
+- **Search/filter refinements** - *Done.* `Services/LogQuery.cs`. Keyword mode supports implicit
+  AND, explicit `OR`, `NOT`/`-term` exclusion, and `"exact phrases"`; an optional regex mode treats
+  the whole box as a .NET regular expression (2-second match timeout, invalid patterns return a 400
+  with the parser's message rather than an empty table). Matching runs against the **grouped**
+  entry, so a term inside a stack trace still finds the entry that owns it.
+- **Export improvements** - *Done.* `GET /api/apps/{name}/export?from=&to=` streams CSV across a
+  date range with the same level/keyword/tag filters as the on-screen search, sharing the
+  `ReadEntries` helper so the two can't drift. Capped by `MaxExportEntries` (default 100,000).
+- **In-memory indexing performance tuning** - *Done, in its simplest useful form.* `LogFolderScanner`
+  caches the date -> files index in memory for `IndexCacheSeconds` (default 10), invalidated when an
+  app is registered or removed. Measured on a 4,032-file tree: ~35 ms of scan removed per request.
+  This is a **TTL cache, not the "approximate offset" index** this doc originally sketched - that
+  wasn't needed to remove the observed cost, and the simpler thing was preferred. No database, no
+  search engine. If this ever proves insufficient the fallback remains **Lucene.NET** (free,
+  self-hosted), not Elasticsearch/SQL.
+- **Redaction safeguard** - *Done.* `Services/LogRedactor.cs`, on by default (`RedactSecrets`).
+  Masks `password=`/`token=`/`api_key=`-style assignments, `Bearer`/`Basic` credentials, and bare
+  JWTs, in messages and in tag values; tag keys that name secrets are excluded from the group-by
+  dropdown entirely. Applied **after grouping**, so secrets inside stack-trace continuation lines
+  are covered. Log files on disk are never modified. Treat this as a safety net only - it cannot
+  catch a secret logged as a bare string with no surrounding context.
+- **Alerting/notifications** - *Not started; deliberately deferred* (confirmed with the user
+  2026-07-20). Still has no design work: delivery mechanism, rule storage, and whether it needs any
+  persistence at all are all open, and the last of those bears directly on the no-database decision.
+  Scope it properly before starting.
 
 ## Explicitly not this phase
 
@@ -42,3 +48,9 @@ Shared context (objective, architecture, non-functional requirements) is in `00-
   `00-overview.md` first; it was an explicit, considered choice, not a placeholder.
 - Any new filter/search capability should keep working through `LogEntryGrouper` (multi-line-aware
   entries), not regress to raw per-line matching - see `CLAUDE.md`'s "How log parsing works."
+  `LogQuery.Matches` takes a whole `LogEntry` for exactly this reason; don't add an overload that
+  takes a raw line.
+- Redaction ordering in `LogRedactor` is load-bearing: scheme-prefixed tokens (`Bearer x`) are
+  masked *before* the general `key=value` rule. With the order reversed, `Authorization: Bearer <token>`
+  matches the general rule with value `Bearer`, masking the scheme word and leaving the real token
+  visible. There is a negative lookahead guarding the same case - don't remove either.

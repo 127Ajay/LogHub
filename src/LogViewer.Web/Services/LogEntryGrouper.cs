@@ -17,7 +17,13 @@ namespace LogViewer.Web.Services;
 /// </summary>
 public static class LogEntryGrouper
 {
-    public static List<LogEntry> Group(IEnumerable<string> lines, string sourceFile)
+    /// <param name="redact">
+    /// Mask credential-looking values. Applied here rather than in
+    /// LogLineParser because continuation lines are appended to Message after
+    /// parsing, and those are exactly where leaked connection strings tend to
+    /// show up (inside stack traces).
+    /// </param>
+    public static List<LogEntry> Group(IEnumerable<string> lines, string sourceFile, bool redact = false)
     {
         var entries = new List<LogEntry>();
         var nonEmptyLines = lines.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
@@ -45,6 +51,12 @@ public static class LogEntryGrouper
         }
 
         if (current is not null) entries.Add(current);
+
+        if (redact)
+        {
+            foreach (var entry in entries) LogRedactor.Apply(entry);
+        }
+
         return entries;
     }
 }

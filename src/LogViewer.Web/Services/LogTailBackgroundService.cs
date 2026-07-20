@@ -104,7 +104,7 @@ public class LogTailBackgroundService : BackgroundService
             // arrive, then restart from the top of the new file.
             if (state.Pending is not null)
             {
-                await group.SendAsync("logLine", state.Pending, ct);
+                await group.SendAsync("logLine", Redact(state.Pending), ct);
                 state.Pending = null;
             }
             state.Offset = 0;
@@ -145,7 +145,7 @@ public class LogTailBackgroundService : BackgroundService
 
                 if (isNewEntry || state.Pending is null)
                 {
-                    if (state.Pending is not null) await group.SendAsync("logLine", state.Pending, ct);
+                    if (state.Pending is not null) await group.SendAsync("logLine", Redact(state.Pending), ct);
                     state.Pending = LogLineParser.Parse(line, fileName);
                 }
                 else
@@ -164,10 +164,18 @@ public class LogTailBackgroundService : BackgroundService
         var flushTimeout = TimeSpan.FromSeconds(Math.Max(4, _options.PollIntervalSeconds * 2));
         if (state.Pending is not null && DateTime.UtcNow - state.PendingSince > flushTimeout)
         {
-            await group.SendAsync("logLine", state.Pending, ct);
+            await group.SendAsync("logLine", Redact(state.Pending), ct);
             state.Pending = null;
         }
     }
+
+    /// <summary>
+    /// Masked at the point of sending rather than at parse time: continuation
+    /// lines are appended to a pending entry after it is parsed, so redacting
+    /// earlier would miss secrets inside stack traces.
+    /// </summary>
+    private LogEntry Redact(LogEntry entry) =>
+        _options.RedactSecrets ? LogRedactor.Apply(entry) : entry;
 
     private class FileTailState
     {

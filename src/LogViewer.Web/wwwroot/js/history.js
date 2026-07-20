@@ -4,6 +4,10 @@
     var fileSelect = document.getElementById('file-select');
     var levelSelect = document.getElementById('level-select');
     var keywordInput = document.getElementById('keyword-input');
+    var regexToggle = document.getElementById('regex-toggle');
+    var rangeFrom = document.getElementById('range-from');
+    var rangeTo = document.getElementById('range-to');
+    var exportRangeBtn = document.getElementById('export-range-btn');
     var tagSelect = document.getElementById('tag-select');
     var tagValueSelect = document.getElementById('tag-value-select');
     var searchBtn = document.getElementById('search-btn');
@@ -40,6 +44,10 @@
                     opt.textContent = d;
                     dateSelect.appendChild(opt);
                 });
+                // Default the export range to the full span that actually has
+                // logs (dates arrive newest-first).
+                rangeFrom.value = dates[dates.length - 1];
+                rangeTo.value = dates[0];
                 loadFiles();
             })
             .catch(function (err) { console.error(err); dateSelect.innerHTML = '<option value="">Error loading dates</option>'; });
@@ -106,6 +114,20 @@
         });
     }
 
+    // Filters shared by the on-screen search and the date-range export, so the
+    // exported file always reflects what the user is looking at.
+    function filterParams() {
+        var params = new URLSearchParams();
+        if (levelSelect.value) params.set('level', levelSelect.value);
+        if (keywordInput.value.trim()) params.set('keyword', keywordInput.value.trim());
+        if (regexToggle.checked) params.set('regex', 'true');
+        if (tagSelect.value) {
+            params.set('tagKey', tagSelect.value);
+            if (tagValueSelect.value) params.set('tagValue', tagValueSelect.value);
+        }
+        return params;
+    }
+
     function search() {
         var date = dateSelect.value;
         if (!date) {
@@ -113,27 +135,47 @@
             return;
         }
 
-        var params = new URLSearchParams({ date: date });
-        if (levelSelect.value) params.set('level', levelSelect.value);
-        if (keywordInput.value.trim()) params.set('keyword', keywordInput.value.trim());
+        var params = filterParams();
+        params.set('date', date);
         if (fileSelect.value) params.set('file', fileSelect.value);
-        if (tagSelect.value) {
-            params.set('tagKey', tagSelect.value);
-            if (tagValueSelect.value) params.set('tagValue', tagValueSelect.value);
-        }
 
         resultsBody.innerHTML = '<tr><td colspan="4" class="empty-hint">Searching...</td></tr>';
 
         fetch('/api/apps/' + encodeURIComponent(currentApp()) + '/logs?' + params.toString())
-            .then(function (r) { return r.json(); })
+            .then(function (r) {
+                if (r.ok) return r.json();
+                // A bad regex comes back as a 400 with an explanation - showing
+                // it beats a silent empty table.
+                return r.json().then(function (body) {
+                    throw new Error((body && body.error) || 'Search failed');
+                });
+            })
             .then(function (entries) {
                 lastResults = entries;
                 renderResults(entries);
             })
             .catch(function (err) {
                 console.error(err);
-                resultsBody.innerHTML = '<tr><td colspan="4" class="empty-hint">Search failed - see browser console.</td></tr>';
+                resultsBody.innerHTML = '<tr><td colspan="4" class="empty-hint">' +
+                    escapeHtml(err.message || 'Search failed - see browser console.') + '</td></tr>';
             });
+    }
+
+    function exportRange() {
+        var from = rangeFrom.value;
+        var to = rangeTo.value;
+        if (!from || !to) {
+            alert('Pick both a start and end date for the range export.');
+            return;
+        }
+
+        var params = filterParams();
+        params.set('from', from);
+        params.set('to', to);
+
+        // Straight browser navigation so the CSV streams to disk instead of
+        // being buffered in memory as a blob.
+        window.location.href = '/api/apps/' + encodeURIComponent(currentApp()) + '/export?' + params.toString();
     }
 
     function entryRow(e) {
@@ -208,6 +250,8 @@
     tagSelect.addEventListener('change', onTagChanged);
     searchBtn.addEventListener('click', search);
     exportBtn.addEventListener('click', exportCsv);
+    exportRangeBtn.addEventListener('click', exportRange);
+    keywordInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') search(); });
 
     loadDates();
 })();
