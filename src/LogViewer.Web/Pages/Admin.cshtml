@@ -1,0 +1,43 @@
+@page "/Admin"
+@model LogViewer.Web.Pages.AdminModel
+@{
+    ViewData["Title"] = "Admin";
+}
+
+<div>
+    <h1 class="pagetitle">Admin</h1>
+    <p class="pagesub">Register applications to monitor. No restart needed - changes take effect immediately.</p>
+</div>
+
+<div class="formcard">
+    <h3>Register a new application</h3>
+    <div class="field">
+        <label>Application name</label>
+        <input type="text" id="app-name" placeholder="e.g. CustomerPortal">
+    </div>
+    <div class="field">
+        <label>Log folder path(s)</label>
+        <div id="path-list">
+            <input type="text" class="path-input" placeholder="e.g. C:\Logs\CustomerPortal" style="width:100%;margin-bottom:8px">
+        </div>
+        <button class="ghost" id="add-path-btn" type="button">+ Add another path</button>
+    </div>
+    <p id="form-error" style="color:var(--err);font-size:13px;display:none;margin:8px 0 0"></p>
+    <div style="margin-top:14px">
+        <button class="primary" id="save-btn">Save application</button>
+    </div>
+</div>
+
+<div>
+    <h3 style="font-size:14px;margin:8px 0">Registered applications</h3>
+    <table>
+        <thead><tr><th>Name</th><th>Log folder path(s)</th><th></th></tr></thead>
+        <tbody id="apps-body">
+            <tr><td colspan="3" class="empty-hint">Loading...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+@section Scripts {
+    <script src="~/js/admin.js"></script>
+}

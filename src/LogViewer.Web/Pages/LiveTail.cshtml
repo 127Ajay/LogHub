@@ -1,0 +1,56 @@
+@page "/LiveTail"
+@model LogViewer.Web.Pages.LiveTailModel
+@{
+    ViewData["Title"] = "Live tail";
+}
+
+<div>
+    <h1 class="pagetitle">Live tail</h1>
+    <p class="pagesub">Streaming new log lines as they're written. Only today's file(s) are tailed.</p>
+</div>
+
+@if (Model.AppNames.Count == 0)
+{
+    <div class="empty-hint">No applications are registered yet. <a href="/Admin" style="color:var(--accent)">Register one</a> to get started.</div>
+}
+else
+{
+    <div class="livewrap">
+        <div class="filterpanel">
+            <div>
+                <h3>Application</h3>
+                <select id="app-select" style="width:100%">
+                    @foreach (var name in Model.AppNames)
+                    {
+                        <option value="@name" selected="@(name == Model.App)">@name</option>
+                    }
+                </select>
+            </div>
+            <div>
+                <h3>Log level</h3>
+                <label class="checkline"><input type="checkbox" class="level-toggle" value="error" checked><span class="dot-lvl dot-error"></span>Error</label>
+                <label class="checkline"><input type="checkbox" class="level-toggle" value="warn" checked><span class="dot-lvl dot-warn"></span>Warning</label>
+                <label class="checkline"><input type="checkbox" class="level-toggle" value="info" checked><span class="dot-lvl dot-info"></span>Info</label>
+                <label class="checkline"><input type="checkbox" class="level-toggle" value="debug"><span class="dot-lvl dot-debug"></span>Debug</label>
+                <label class="checkline"><input type="checkbox" class="level-toggle" value="unknown" checked>Unclassified</label>
+            </div>
+            <div>
+                <h3>Options</h3>
+                <label class="checkline"><input type="checkbox" id="autoscroll" checked>Auto-scroll</label>
+            </div>
+        </div>
+        <div class="logpane">
+            <div class="head">
+                <div class="live-indicator" id="live-indicator"><span class="pulse"></span>LIVE</div>
+                <input type="text" id="keyword-filter" placeholder="Filter stream (keyword)...">
+                <button class="ghost" id="pause-btn">Pause</button>
+                <button class="ghost" id="clear-btn">Clear</button>
+            </div>
+            <div class="logstream" id="logstream"></div>
+        </div>
+    </div>
+}
+
+@section Scripts {
+    <script src="~/js/livetail.js"></script>
+}

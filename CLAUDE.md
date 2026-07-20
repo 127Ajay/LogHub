@@ -1,0 +1,167 @@
+# CLAUDE.md
+
+Guidance for Claude Code (or any future agent) working in this repository. Read this before
+making changes - it explains what LogHub is, what's actually built vs. planned, and the decisions
+already made so they don't get silently re-litigated or reverted.
+
+## What this project is
+
+LogHub is a centralized, web-based log viewer. Internal Web Applications on a server write their
+own `*.log` files to disk; today, checking them means RDPing into the server and hunting through
+folders. LogHub reads those files directly and shows them in a browser - live tail plus searchable
+history - so developers and support staff never need server access just to read a log.
+
+Full requirements live in `docs/prd/`, split by phase (see below). This file is the "how the
+codebase actually works right now" companion to those requirement docs.
+
+## Vision / where this is going
+
+Phase 1 (pilot) is implemented: Web Applications only, single server, no auth, no database. See
+`docs/prd/phase-1-pilot.md` for exact scope and `docs/prd/00-overview.md` for the architecture
+decisions that shape everything (single-server deployment, no Elasticsearch/SQL, no login).
+
+Phase 2 and Phase 3 (`docs/prd/phase-2.md`, `docs/prd/phase-3.md`) are **not started** - they're
+written as forward-looking guidelines, not a backlog that's silently in progress. Don't assume any
+Phase 2/3 feature exists just because it's described there; check the code.
+
+## Current implementation status (Phase 1)
+
+Working, in `src/LogViewer.Web/`:
+
+- Live Tail - polls each app's today's log file(s) every few seconds, pushes new lines to the
+  browser over SignalR.
+- History - date picker, keyword/level filter, reads matching file(s) directly on request.
+- Admin page - register/remove applications (name + one or more log folder paths) from the
+  browser. **This diverged from the original PRD draft**, which assumed `appsettings.json`
+  editing; a user explicitly asked for frontend-managed registration instead. See "Key decisions"
+  below.
+- Handles flat log files (`Root\app-2026-07-20.log`), one-folder-per-day layouts
+  (`Root\2026-07-20\*.log`), and split `Root\2026\07\20\` nesting. The scan is **recursive**
+  (depth-capped at 6) - it used to look only one level deep, which meant any nested layout indexed
+  to nothing and History showed "No log data found". Each file's date falls back through:
+  date in file name -> date in folder path -> last-write time, so every readable file lands
+  somewhere in the index rather than disappearing.
+- Group-by-tag in History: the app offers grouping on whatever structured fields it finds in the
+  selected day's logs (see `ExtractTags` below), and no grouping at all for formats that carry none.
+- Multi-line log entry grouping - a line without a timestamp is treated as a continuation of the
+  previous entry (stack traces, wrapped messages), not a separate broken entry. This was added
+  after Serilog's own multi-line output format broke naive one-line-per-entry parsing; the fix is
+  general-purpose, not Serilog-specific. See "How log parsing works" below.
+- CSV export from the History view.
+- LogHub's own operational logging goes through Serilog to `Logs/loghub-*.log` (rolling daily) -
+  separate from the application logs it monitors.
+- No authentication. No database. No collector agents.
+
+## Key decisions (don't relitigate these without a reason)
+
+These came out of explicit stakeholder Q&A during the PRD process (`docs/prd/00-overview.md` has
+the full decision log):
+
+1. **Single server.** The web app and the log files it reads live on the same machine. No remote
+   agents, no network log shipping.
+2. **No database, no search engine.** Elasticsearch/OpenSearch/SQL were explicitly ruled out. The
+   app reads `*.log` files directly from disk on every request - no persistence layer beyond the
+   small JSON file that stores registered application names/paths.
+3. **No authentication.** Internal-only tool, reachable only on the internal network. If this ever
+   changes, Windows Integrated Auth was the suggested lightweight path (no extra licensing).
+4. **Application registration is UI-managed, not config-file-managed.** `App_Data/applications.json`
+   is written by `LogAppRegistry` when someone uses the Admin page; nobody should need to hand-edit
+   JSON or restart the app to add a monitored application. Don't reintroduce an `appsettings.json`-based
+   app list - that was tried first and explicitly replaced.
+5. **Polling, not FileSystemWatcher**, for tailing files (`LogTailBackgroundService`). Deliberate:
+   simpler to reason about, tolerates locked/rotating files without missed events. Don't swap this
+   out for a watcher-based approach without a concrete reason - it was a considered trade-off, not
+   an oversight.
+6. **Log parsing is heuristic and format-agnostic on purpose.** LogHub has no per-application
+   format configuration. It must keep working against log formats it's never seen before (that's
+   literally why the multi-line grouping fix exists - see below). Don't add a hard dependency on
+   any one framework's output shape (Serilog, NLog, log4net, etc.).
+
+## How log parsing works (read this before touching `Services/`)
+
+- `LogLineParser.HasTimestamp(line)` - a line "looks like" the start of a new entry if it begins
+  with a recognizable timestamp. This is the one heuristic the whole system hangs off of. It
+  tolerates leading `[`/`(`/`<`/quote characters (bracketed layouts like `[2026-07-20 09:00:00]`
+  are extremely common and previously read as "no timestamp at all", which collapsed a whole file
+  into one entry), and accepts ISO, `yyyy/MM/dd`, `dd/MM/yyyy`, compact `yyyyMMdd HHmmss`, syslog
+  (`Jul 20 09:00:00`) and bare `HH:mm:ss` forms.
+- **Timestamps keep their wall-clock value.** A time written without a timezone is not shifted to
+  UTC - doing so made a line reading `09:00` render as `03:30` for anyone east of UTC. Formats that
+  do carry an offset (`Z`, `+05:30`) are converted normally. Don't reintroduce
+  `AssumeLocal`/`AdjustToUniversal` here.
+- JSON-per-line logs (Serilog compact `@t`/`@l`/`@mt`, pino, Bunyan, Docker) are detected and read
+  as real fields rather than pattern-matched as text.
+- `LogLineParser.DetectLevel(line)` - checks Serilog's bracketed 3-letter codes first
+  (`[INF]`/`[WRN]`/`[ERR]`/`[DBG]`/`[VRB]`/`[FTL]`), then falls back to full words
+  (`ERROR`/`WARN`/`INFO`/`DEBUG`/`FATAL`/`TRACE`) for other frameworks. Word matching is
+  boundary-anchored on purpose - matching "error" anywhere in the text made every message that
+  merely mentions the word an Error entry. Unrecognized lines are `LogSeverity.Unknown`, not an
+  error - the app never rejects a line for not matching a schema.
+- `LogLineParser.ExtractTags(line)` - best-effort structured fields: `key=value` pairs, bracketed
+  context tokens (numbered `context`, `context2`, ...), and JSON properties. A format carrying none
+  yields an empty dictionary, which is a normal outcome rather than a failure. These populate the
+  History page's "group by" dropdown, so the grouping options are always whatever the logs actually
+  contain - there is still no per-application format configuration.
+- `LogEntryGrouper.Group(lines, sourceFile)` (used by the History/`logs` API) - groups raw lines
+  into entries: a line with a timestamp starts a new entry, a line without one is folded into the
+  previous entry's `Message` (with a newline). If a file has **no** timestamped lines at all, every
+  line is treated as its own entry instead (so plain unstructured logs still work sensibly).
+- `LogTailBackgroundService` does the same grouping, but streaming: per file, it tracks whether
+  timestamps have been seen yet, and holds a "pending" entry across poll ticks while continuation
+  lines might still be coming. A pending entry is flushed to the browser when either (a) a new
+  timestamped line closes it, or (b) it's been pending longer than ~2 poll intervals with nothing
+  new (so a straggling last line never gets silently lost), or (c) the file rotates.
+- Frontend rendering relies on `white-space: pre-wrap` (both `.logline` in Live Tail and `td` in
+  the History table) so multi-line `Message` values with embedded `\n` actually show as line
+  breaks. If you add a new place that renders `entry.message`, it needs the same CSS rule or
+  multi-line entries will look squashed.
+
+If you're debugging "why did an entry look wrong/split/merged," start with these files, in this
+order: `LogLineParser.cs` -> `LogEntryGrouper.cs` -> `LogTailBackgroundService.cs`.
+
+## Repo layout
+
+```
+LogViewer/
+  CLAUDE.md                          This file
+  docs/prd/                          Requirements, split by phase (see below)
+  Log_Viewer_WebApp_PRD.docx         Original PRD (v1.0) - superseded, kept for history
+  Log_Viewer_WebApp_PRD_v1.1.docx    Updated PRD after stakeholder Q&A - source for docs/prd/
+  LogHub_Design_Mockup.html          Early UI mockup (dashboard/live tail/search/admin screens)
+  src/LogViewer.Web/                 The actual application (ASP.NET Core / .NET 8)
+    Program.cs                      Minimal API + Razor Pages + SignalR + Serilog wiring
+    Models/                         LogApplicationConfig, LogEntry, LogViewerOptions
+    Services/
+      LogAppRegistry.cs             App registration store (App_Data/applications.json)
+      LogFolderScanner.cs           Builds date -> files index (flat + dated-folder aware)
+      LogLineParser.cs              Timestamp/level detection for a single line
+      LogEntryGrouper.cs            Groups lines into multi-line-aware entries (batch/History)
+      LogFileReader.cs              Shared-mode reads (logs are usually held open by their writer)
+      LogTailBackgroundService.cs   Polls today's file(s), streams new entries via SignalR
+    Hubs/LogHub.cs                  SignalR hub (per-app groups) + backlog replay on join
+    Pages/                          Dashboard (Index), LiveTail, History, Admin (Razor Pages)
+    wwwroot/                        site.css, livetail.js, history.js, admin.js
+    wwwroot/lib/signalr/            SignalR JS client, vendored (@microsoft/signalr 8.0.7).
+                                    _Layout.cshtml references it on every page; when this folder
+                                    was empty the 404 left `signalR` undefined and Live Tail died
+                                    silently at startup. Keep it checked in - there is no CDN
+                                    fallback and the tool is meant to run on an isolated network.
+    App_Data/applications.json      Registered applications (created/edited via Admin page)
+    Logs/loghub-*.log               LogHub's own Serilog output (created at runtime)
+    sample-logs/                    Demo data used by the seeded CustomerPortal entry
+    README.md                       Build/run instructions, setup gotchas (SignalR client lib, etc.)
+```
+
+## Working in this codebase
+
+- **A .NET SDK is now available** (10.0.110 as of 2026-07-20; the project targets net8.0 and builds
+  fine on it). Earlier changes were authored blind without an SDK - that is no longer the case, so
+  always `dotnet build` and actually exercise the endpoints before claiming a fix works.
+- Keep changes minimal and traceable to a specific request - this codebase has deliberately avoided
+  speculative abstractions (see "Key decisions" above for examples of trade-offs that were made on
+  purpose, not by accident).
+- When extending log parsing/tailing, prefer generalizing the existing heuristics
+  (`LogLineParser`/`LogEntryGrouper`) over adding format-specific special cases - the whole point is
+  that LogHub shouldn't need to know in advance what's writing the logs it's reading.
+- `docs/prd/00-overview.md` has the non-functional requirements (latency, resource footprint, no
+  persisted log content) - check new features against these before assuming they're in scope.

@@ -1,0 +1,59 @@
+@page "/History"
+@model LogViewer.Web.Pages.HistoryModel
+@{
+    ViewData["Title"] = "History";
+}
+
+<div>
+    <h1 class="pagetitle">Search &amp; history</h1>
+    <p class="pagesub">Browse past log data by date, across both flat and dated-folder layouts.</p>
+</div>
+
+@if (Model.AppNames.Count == 0)
+{
+    <div class="empty-hint">No applications are registered yet. <a href="/Admin" style="color:var(--accent)">Register one</a> to get started.</div>
+}
+else
+{
+    <div class="filterbar">
+        <select id="app-select">
+            @foreach (var name in Model.AppNames)
+            {
+                <option value="@name" selected="@(name == Model.App)">@name</option>
+            }
+        </select>
+        <select id="date-select"><option value="">Loading dates...</option></select>
+        <select id="file-select"><option value="">All files for this date</option></select>
+        <select id="level-select">
+            <option value="">All levels</option>
+            <option value="error">Error</option>
+            <option value="warn">Warning</option>
+            <option value="info">Info</option>
+            <option value="debug">Debug</option>
+        </select>
+        <input type="text" id="keyword-input" placeholder="Keyword...">
+        @* Populated from whatever structured fields the day's logs actually
+           contain - empty for formats that carry none. *@
+        <select id="tag-select" title="Group results by a tag found in the logs">
+            <option value="">No grouping</option>
+        </select>
+        <select id="tag-value-select" title="Filter to a single value of the selected tag">
+            <option value="">All values</option>
+        </select>
+        <button class="primary" id="search-btn">Search</button>
+        <button class="ghost" id="export-btn">Export CSV</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr><th>Timestamp</th><th>Level</th><th>File</th><th>Message</th></tr>
+        </thead>
+        <tbody id="results-body">
+            <tr><td colspan="4" class="empty-hint">Pick a date and click Search.</td></tr>
+        </tbody>
+    </table>
+}
+
+@section Scripts {
+    <script src="~/js/history.js"></script>
+}

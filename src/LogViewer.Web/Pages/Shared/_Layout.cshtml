@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LogHub - @ViewData["Title"]</title>
+    <link rel="stylesheet" href="~/css/site.css">
+</head>
+<body>
+    <div class="app">
+        <div class="topbar">
+            <div class="logo"><span class="dot"></span>LogHub</div>
+            <div class="navtabs">
+                <a href="/">Dashboard</a>
+                <a href="/LiveTail">Live tail</a>
+                <a href="/History">History</a>
+                <a href="/Admin">Admin</a>
+            </div>
+        </div>
+        <div class="body">
+            @RenderBody()
+        </div>
+    </div>
+
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script>
+        document.querySelectorAll('.navtabs a').forEach(a => {
+            if (a.getAttribute('href') === window.location.pathname) a.classList.add('active');
+        });
+    </script>
+    @RenderSection("Scripts", required: false)
+</body>
+</html>

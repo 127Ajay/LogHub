@@ -1,0 +1,34 @@
+@page "/"
+@model LogViewer.Web.Pages.IndexModel
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<div class="toolbar" style="justify-content:space-between">
+    <div>
+        <h1 class="pagetitle">Applications</h1>
+        <p class="pagesub">Registered applications and their available log data.</p>
+    </div>
+    <a class="primary" style="text-decoration:none" href="/Admin">+ Register application</a>
+</div>
+
+@if (Model.Apps.Count == 0)
+{
+    <div class="empty-hint">No applications are registered yet. <a href="/Admin" style="color:var(--accent)">Register one</a> to get started.</div>
+}
+else
+{
+    <div class="appgrid">
+        @foreach (var app in Model.Apps)
+        {
+            <div class="appcard">
+                <div class="name">@app.Name</div>
+                <div class="meta">@app.TodayFileCount log file(s) today &middot; @app.DatesAvailable date(s) with history</div>
+                <div class="footer">
+                    <a class="viewlink" href="/LiveTail?app=@Uri.EscapeDataString(app.Name)">Live tail &rarr;</a>
+                    <a class="viewlink" href="/History?app=@Uri.EscapeDataString(app.Name)">History &rarr;</a>
+                </div>
+            </div>
+        }
+    </div>
+}

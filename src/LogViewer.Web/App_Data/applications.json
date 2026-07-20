@@ -1,0 +1,14 @@
+[
+  {
+    "Name": "CustomerPortal",
+    "RootPaths": [
+      "sample-logs/CustomerPortal"
+    ]
+  },
+  {
+    "Name": "LogViewer",
+    "RootPaths": [
+      "D:\\Practice\\LogViewer\\src\\LogViewer.Web\\Logs"
+    ]
+  }
+]
