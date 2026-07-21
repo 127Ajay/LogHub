@@ -16,7 +16,7 @@ the machine it runs on, and that is the whole architecture.
 | --- | --- |
 | [Phase 1 — pilot](docs/prd/phase-1-pilot.md) | Implemented |
 | [Phase 2](docs/prd/phase-2.md) | Mostly implemented — regex/boolean search, date-range export, index caching, redaction. **Alerting deferred**, not designed. |
-| [Phase 3](docs/prd/phase-3.md) | Not started. Every item is gated on a trigger that has not fired. |
+| [Phase 3](docs/prd/phase-3.md) | Partially resolved. Non-web-app log types need no code — any application writing flat `*.log` files works today. Multi-server and authentication are **deferred**, with a [written plan](docs/plans/2026-07-21-phase-3-future-multiserver-and-auth.md) for adding them later. |
 
 ## Features
 
@@ -126,6 +126,10 @@ LogHub's own diagnostics go through Serilog to `src/LogViewer.Web/Logs/loghub-*.
 
 ## Not in scope
 
-Non-web-application log types, multi-server collector agents, authentication, and alerting are all
-deliberately out of scope for now. See [`docs/prd/phase-3.md`](docs/prd/phase-3.md) for the
-conditions under which each would be revisited.
+Multi-server collector agents, authentication, and alerting are deliberately out of scope for now.
+See [`docs/prd/phase-3.md`](docs/prd/phase-3.md) for the conditions under which each would be
+revisited, and [the deferred-work plan](docs/plans/2026-07-21-phase-3-future-multiserver-and-auth.md)
+for how multi-server and auth would be added.
+
+Applications that log **only to the Windows Event Log** are also unsupported — LogHub reads files.
+Any application that writes flat `*.log` files is supported regardless of its type.

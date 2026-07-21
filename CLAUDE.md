@@ -24,9 +24,20 @@ Phase 2 (`docs/prd/phase-2.md`) is **mostly implemented** as of 2026-07-20: sear
 (regex + AND/OR/NOT), date-range export, index caching, and redaction. **Alerting was explicitly
 deferred** by the user and has no design work - don't start it without scoping it first.
 
-Phase 3 (`docs/prd/phase-3.md`) is **not started, and none of its trigger conditions have fired**
-(confirmed with the user 2026-07-20). Non-Web-App log types, multi-server collector agents, and
-authentication are all gated on a specific trigger actually occurring - don't build ahead of them.
+Phase 3 (`docs/prd/phase-3.md`) is **partially resolved as of 2026-07-21**:
+
+- **Non-Web-App log types: resolved, no code was needed.** There is no application-type concept in
+  the codebase - `LogApplicationConfig` is a name plus folder paths. Any application writing flat
+  `*.log` files (Windows Service, WCF, Web API) works today by registering its folder. Verified
+  against NLog, log4net, and bracketed ASP.NET layouts on a running instance. Applications logging
+  **only to the Windows Event Log** are still unsupported and would need a real second collection
+  mechanism. Don't describe the tool as "Web Applications only" - that was pilot scoping, not a
+  code constraint.
+- **Multi-server collector agent and authentication: deferred by the user (2026-07-21)**, with a
+  full plan in `docs/plans/2026-07-21-phase-3-future-multiserver-and-auth.md`. Both are still gated
+  on their trigger actually firing - don't build ahead of them. Note the plan's key finding: a UNC
+  root path already works with no code change (`ResolveRoot` passes rooted paths through), so a
+  collector agent should never be the first thing tried.
 
 ## Current implementation status (Phase 1)
 
