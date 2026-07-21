@@ -6,7 +6,23 @@
   --warn: #f5a623; --warn-bg: #332507;
   --err: #f0554b; --err-bg: #341210;
   --debug: #8b8fa3;
+  --logbg: #0b0f19;
   --radius: 8px;
+}
+
+/* Light theme. The level colours are not the dark ones lightened - they are
+   darkened, because the dark palette was tuned against a near-black
+   background. #f5a623 amber on white is about 1.9:1, effectively unreadable;
+   every value here clears 4.5:1 on --logbg/--panel. */
+:root[data-theme="light"] {
+  --bg: #f5f7fa; --panel: #ffffff; --panel2: #eef1f6; --border: #d6dce7;
+  --text: #1a2233; --text-dim: #55617a; --text-mute: #6b7486;
+  --accent: #1c5fd0; --accent-dim: #dce8ff;
+  --ok: #12704a; --ok-bg: #e2f5ec;
+  --warn: #8a5a00; --warn-bg: #fdf1d9;
+  --err: #c0332a; --err-bg: #fde8e6;
+  --debug: #5f6875;
+  --logbg: #ffffff;
 }
 * { box-sizing: border-box; }
 body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); }
@@ -19,6 +35,8 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Ro
 .navtabs a { color: var(--text-dim); text-decoration: none; padding: 8px 14px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; }
 .navtabs a:hover { background: var(--panel2); color: var(--text); }
 .navtabs a.active { background: var(--accent-dim); color: var(--accent); }
+.themetoggle { background: none; border: 1px solid var(--border); color: var(--text-dim); border-radius: var(--radius); width: 32px; height: 32px; font-size: 14px; line-height: 1; cursor: pointer; flex-shrink: 0; }
+.themetoggle:hover { color: var(--text); border-color: var(--text-dim); }
 
 .body { flex: 1; display: flex; overflow: auto; padding: 20px; flex-direction: column; gap: 16px; }
 
@@ -55,7 +73,7 @@ button.ghost.active-toggle { color: var(--accent); border-color: var(--accent); 
 .dot-lvl { width: 8px; height: 8px; border-radius: 50%; }
 .dot-error { background: var(--err); } .dot-warn { background: var(--warn); } .dot-info { background: var(--accent); } .dot-debug { background: var(--debug); }
 
-.logpane { flex: 1; background: #0b0f19; border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; min-width: 0; }
+.logpane { flex: 1; background: var(--logbg); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; min-width: 0; }
 .logpane .head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .live-indicator { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ok); font-weight: 600; }
 .live-indicator .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }

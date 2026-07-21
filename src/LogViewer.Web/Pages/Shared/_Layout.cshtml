@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>LogHub - @ViewData["Title"]</title>
     <link rel="stylesheet" href="~/css/site.css">
+    @* Must run before first paint and before the stylesheet is applied to the
+       body, otherwise every page load flashes dark before switching to light. *@
+    <script>
+        (function () {
+            try {
+                var saved = localStorage.getItem('loghub-theme');
+                if (saved) document.documentElement.dataset.theme = saved;
+            } catch (e) { /* storage blocked - fall back to the dark default */ }
+        })();
+    </script>
 </head>
 <body>
     <div class="app">
@@ -16,6 +26,7 @@
                 <a href="/History">History</a>
                 <a href="/Admin">Admin</a>
             </div>
+            <button type="button" class="themetoggle" id="theme-toggle" aria-label="Switch theme"></button>
         </div>
         <div class="body">
             @RenderBody()
@@ -27,6 +38,25 @@
         document.querySelectorAll('.navtabs a').forEach(a => {
             if (a.getAttribute('href') === window.location.pathname) a.classList.add('active');
         });
+
+        (function () {
+            var root = document.documentElement;
+            var toggle = document.getElementById('theme-toggle');
+
+            function paint() {
+                var light = root.dataset.theme === 'light';
+                toggle.textContent = light ? '☼' : '☾';
+                toggle.title = light ? 'Switch to dark theme' : 'Switch to light theme';
+            }
+
+            toggle.addEventListener('click', function () {
+                root.dataset.theme = root.dataset.theme === 'light' ? 'dark' : 'light';
+                try { localStorage.setItem('loghub-theme', root.dataset.theme); } catch (e) { }
+                paint();
+            });
+
+            paint();
+        })();
     </script>
     @RenderSection("Scripts", required: false)
 </body>
