@@ -44,12 +44,14 @@ else
             <option value="">All values</option>
         </select>
         <button class="primary" id="search-btn">Search</button>
-        <button class="ghost" id="export-btn">Export results</button>
+        <button class="ghost" id="export-btn" aria-expanded="false" aria-controls="export-panel">Export results</button>
     </div>
 
-    @* Exports straight from the server across a whole range, applying the same
-       filters as the search above - no need to page through a day at a time. *@
-    <div class="filterbar rangebar">
+    @* Hidden until "Export results" is clicked. Exports straight from the server
+       across a whole range, applying the same filters as the search above - no
+       need to page through a day at a time. *@
+    <div class="filterbar rangebar" id="export-panel" hidden>
+        <button class="ghost" id="export-current-btn" title="Download the rows currently shown">Export current results</button>
         <span class="rangelabel">Export date range</span>
         <input type="date" id="range-from">
         <span class="rangelabel">to</span>

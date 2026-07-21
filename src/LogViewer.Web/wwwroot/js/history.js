@@ -12,6 +12,8 @@
     var tagValueSelect = document.getElementById('tag-value-select');
     var searchBtn = document.getElementById('search-btn');
     var exportBtn = document.getElementById('export-btn');
+    var exportPanel = document.getElementById('export-panel');
+    var exportCurrentBtn = document.getElementById('export-current-btn');
     var resultsBody = document.getElementById('results-body');
 
     if (!appSelect) return;
@@ -249,7 +251,14 @@
     fileSelect.addEventListener('change', loadTags);
     tagSelect.addEventListener('change', onTagChanged);
     searchBtn.addEventListener('click', search);
-    exportBtn.addEventListener('click', exportCsv);
+    // "Export results" only reveals the export panel; the actual downloads live
+    // inside it, so the range controls stay out of the way until they're wanted.
+    exportBtn.addEventListener('click', function () {
+        var show = exportPanel.hasAttribute('hidden');
+        if (show) { exportPanel.removeAttribute('hidden'); } else { exportPanel.setAttribute('hidden', ''); }
+        exportBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
+    });
+    exportCurrentBtn.addEventListener('click', exportCsv);
     exportRangeBtn.addEventListener('click', exportRange);
     keywordInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') search(); });
 

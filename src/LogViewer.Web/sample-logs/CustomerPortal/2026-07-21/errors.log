@@ -1,0 +1,4 @@
+2026-07-21 09:00:05 [ERR] Payment gateway timeout
+    at Payments.Gateway.Charge()
+    at Checkout.Complete()
+2026-07-21 09:00:06 [WRN] Retrying charge attempt 2

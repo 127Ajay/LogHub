@@ -50,6 +50,8 @@ button.ghost.active-toggle { color: var(--accent); border-color: var(--accent); 
 .filterpanel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-mute); margin: 0 0 8px; }
 .checkline { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); padding: 4px 0; }
 .checkline input { accent-color: var(--accent); }
+.filelist { max-height: 150px; overflow-y: auto; }
+.filelist .filename { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dot-lvl { width: 8px; height: 8px; border-radius: 50%; }
 .dot-error { background: var(--err); } .dot-warn { background: var(--warn); } .dot-info { background: var(--accent); } .dot-debug { background: var(--debug); }
 
@@ -111,5 +113,7 @@ tr.group-header td {
     white-space: nowrap;
 }
 .rangebar { margin-top: -6px; }
+/* .filterbar's display:flex would otherwise beat the UA [hidden] rule. */
+.filterbar[hidden] { display: none; }
 .rangelabel { color: var(--text-dim); font-size: 13px; }
 .rangehint { color: var(--text-dim); font-size: 12px; opacity: 0.75; }

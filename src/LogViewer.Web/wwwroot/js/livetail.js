@@ -6,6 +6,7 @@
     var keywordFilter = document.getElementById('keyword-filter');
     var autoscroll = document.getElementById('autoscroll');
     var liveIndicator = document.getElementById('live-indicator');
+    var fileList = document.getElementById('file-list');
     var levelToggles = Array.prototype.slice.call(document.querySelectorAll('.level-toggle'));
 
     if (!stream || !appSelect) return;
@@ -15,11 +16,20 @@
     var connection = null;
     var MAX_LINES = 500;
 
+    var buffer = [];
+    var knownFiles = {};
+    var fileToggles = [];
+
     function pad(n, len) { return n.toString().padStart(len || 2, '0'); }
 
     function formatTimestamp(ts) {
         var d = ts ? new Date(ts) : new Date();
         return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + '.' + pad(d.getMilliseconds(), 3);
+    }
+
+    function today() {
+        var d = new Date();
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     }
 
     function levelClass(level) {
@@ -30,15 +40,26 @@
         return levelToggles.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
     }
 
-    function appendLine(entry) {
-        if (paused) return;
+    function activeFiles() {
+        return fileToggles.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+    }
 
-        var cls = levelClass(entry.level);
-        if (activeLevels().indexOf(cls) === -1) return;
+    function passesFilters(entry) {
+        if (activeLevels().indexOf(levelClass(entry.level)) === -1) return false;
+
+        // An empty file list means the fetch failed or the app has nothing for
+        // today - filter on nothing rather than filtering out everything, which
+        // would blank the pane and read as "live tail is broken".
+        if (fileToggles.length && activeFiles().indexOf(entry.sourceFile || '') === -1) return false;
 
         var keyword = keywordFilter.value.trim().toLowerCase();
-        if (keyword && entry.message.toLowerCase().indexOf(keyword) === -1) return;
+        if (keyword && entry.message.toLowerCase().indexOf(keyword) === -1) return false;
 
+        return true;
+    }
+
+    function renderOne(entry) {
+        var cls = levelClass(entry.level);
         var el = document.createElement('div');
         el.className = 'logline';
         el.innerHTML =
@@ -47,14 +68,85 @@
             '<span class="src">' + escapeHtml(entry.sourceFile || '') + '</span>' +
             '<span class="msg">' + escapeHtml(entry.message) + '</span>';
         stream.appendChild(el);
+    }
 
+    function scrollIfFollowing() {
+        if (autoscroll.checked) stream.scrollTop = stream.scrollHeight;
+    }
+
+    function render() {
+        stream.innerHTML = '';
+        buffer.filter(passesFilters).forEach(renderOne);
+        scrollIfFollowing();
+    }
+
+    function appendLine(entry) {
+        if (paused) return;
+
+        ensureFileToggle(entry.sourceFile);
+
+        buffer.push(entry);
+        while (buffer.length > MAX_LINES) buffer.shift();
+
+        if (!passesFilters(entry)) return;
+
+        renderOne(entry);
         while (stream.children.length > MAX_LINES) {
             stream.removeChild(stream.firstChild);
         }
+        scrollIfFollowing();
+    }
 
-        if (autoscroll.checked) {
-            stream.scrollTop = stream.scrollHeight;
-        }
+    function addFileToggle(name, checked) {
+        if (!fileList) return;
+        knownFiles[name] = true;
+
+        var label = document.createElement('label');
+        label.className = 'checkline';
+
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'file-toggle';
+        cb.value = name;
+        cb.checked = checked;
+        cb.addEventListener('change', render);
+
+        var text = document.createElement('span');
+        text.className = 'filename';
+        text.textContent = name;
+        text.title = name;
+
+        label.appendChild(cb);
+        label.appendChild(text);
+        fileList.appendChild(label);
+        fileToggles.push(cb);
+    }
+
+    // A file can show up after the list was loaded (created mid-session, or a
+    // rotation producing a new name). Add it already ticked so its lines are
+    // never silently dropped.
+    function ensureFileToggle(name) {
+        if (!name || knownFiles[name]) return;
+        addFileToggle(name, true);
+    }
+
+    function resetFiles() {
+        knownFiles = {};
+        fileToggles = [];
+        if (fileList) fileList.innerHTML = '';
+    }
+
+    function loadFiles(appName) {
+        if (!fileList) return;
+
+        fetch('/api/apps/' + encodeURIComponent(appName) + '/files?date=' + today())
+            .then(function (res) { return res.ok ? res.json() : []; })
+            .then(function (files) {
+                if (appName !== currentApp) return;
+                files.forEach(function (name) { ensureFileToggle(name); });
+                render();
+            })
+            .catch(function (err) { console.error('Could not load file list', err); });
     }
 
     function escapeHtml(text) {
@@ -93,13 +185,21 @@
     appSelect.addEventListener('change', function () {
         var previous = currentApp;
         currentApp = appSelect.value;
+
+        buffer = [];
         stream.innerHTML = '';
+        resetFiles();
+        loadFiles(currentApp);
+
         if (connection && connection.state === signalR.HubConnectionState.Connected) {
             connection.invoke('LeaveApp', previous).catch(function () {});
             joinCurrentApp();
         }
         history.replaceState(null, '', '/LiveTail?app=' + encodeURIComponent(currentApp));
     });
+
+    levelToggles.forEach(function (cb) { cb.addEventListener('change', render); });
+    keywordFilter.addEventListener('input', render);
 
     pauseBtn.addEventListener('click', function () {
         paused = !paused;
@@ -108,8 +208,10 @@
     });
 
     clearBtn.addEventListener('click', function () {
+        buffer = [];
         stream.innerHTML = '';
     });
 
+    loadFiles(currentApp);
     connect();
 })();
