@@ -28,10 +28,6 @@ startup and rewrites whenever you add or remove an application from the Admin pa
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 - A browser (Chrome/Edge/Firefox)
 
-This code was written and reviewed by hand but **could not be compiled or run in the sandbox this
-was authored in** — no .NET SDK or internet access was available there. Please run a build on your
-machine and send back any compiler errors; they should be quick to fix.
-
 ## One-time setup: SignalR client library
 
 The live tail page needs the SignalR JavaScript client at `wwwroot/lib/signalr/signalr.min.js`.
