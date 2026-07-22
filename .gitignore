@@ -3,7 +3,7 @@ Log_Viewer_WebApp_PRD.docx
 LogHub_Design_Mockup.html
 skills-lock.json
 graphify-out/
-.claude/settings.local.json
+.claude/
 src/LogViewer.Web/sample-logs/CustomerPortal/2026-07-19/app.log
 src/LogViewer.Web/sample-logs/CustomerPortal/2026-07-20/app.log
 src/LogViewer.Web/sample-logs/CustomerPortal/2026-07-20/errors.log
